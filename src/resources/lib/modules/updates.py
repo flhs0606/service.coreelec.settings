@@ -46,8 +46,8 @@ class updates:
                     'settings': {
                         'AutoUpdate': {
                             'name': 32014,
-                            'value': 'auto',
-                            'action': 'set_auto_update',
+                            'value': 'manual',
+                            'action': 'do_manual_update',
                             'type': 'multivalue',
                             'values': ['auto', 'manual'],
                             'InfoText': 714,
@@ -55,7 +55,7 @@ class updates:
                             },
                         'SubmitStats': {
                             'name': 32021,
-                            'value': '1',
+                            'value': '0',
                             'action': 'set_value',
                             'type': 'bool',
                             'InfoText': 772,
@@ -63,7 +63,7 @@ class updates:
                             },
                         'UpdateNotify': {
                             'name': 32365,
-                            'value': '1',
+                            'value': '0',
                             'action': 'set_value',
                             'type': 'bool',
                             'InfoText': 715,
