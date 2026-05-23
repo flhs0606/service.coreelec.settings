@@ -337,7 +337,7 @@ class hardware:
                             'value': '',
                             'action': 'set_cpu_governor',
                             'type': 'multivalue',
-                            'values': ['ondemand', 'performance'],
+                            'values': ['schedutil', 'ondemand', 'performance'],
                             },
                         },
                     },
@@ -648,7 +648,7 @@ class hardware:
             else:
                 self.struct['display']['settings']['vesa_enable']['value'] = '0'
 
-            cpu_clusters = ["", "cpu0/"]
+            cpu_clusters = ["", "cpu0/", "cpu4/"]
             for cluster in cpu_clusters:
                 sys_device = '/sys/devices/system/cpu/' + cluster + 'cpufreq/'
                 if not os.path.exists(sys_device):
@@ -656,7 +656,11 @@ class hardware:
 
                 if os.path.exists(sys_device + 'scaling_available_governors'):
                     available_gov = self.oe.load_file(sys_device + 'scaling_available_governors')
-                    self.struct['performance']['settings']['cpu_governor']['values'] = available_gov.split()
+                    # Merge with static list to ensure schedutil is always offered
+                    static_gov = ['schedutil', 'ondemand', 'performance']
+                    detected_gov = available_gov.split()
+                    merged_gov = list(set(static_gov + detected_gov))
+                    self.struct['performance']['settings']['cpu_governor']['values'] = merged_gov
 
                 value = self.oe.read_setting('hardware', 'cpu_governor')
                 if value is None:
