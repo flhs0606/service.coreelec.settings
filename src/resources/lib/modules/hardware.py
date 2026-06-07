@@ -17,6 +17,12 @@ class hardware:
     ENABLED = False
     need_inject = False
     check_for_reboot = False
+    # big.LITTLE: cpu0..3 little, cpu4..7 big on G12B/SM1
+    CPU_CLUSTERS = ("cpu0/", "cpu4/")
+    # Fallback list for the CPU governor picker: kernel-reported governors are
+    # merged on top, but these are always offered so a non-schedutil kernel
+    # still lets the user pick schedutil.
+    DEFAULT_CPU_GOVERNORS = ("schedutil", "ondemand", "performance")
     menu = {'8': {
         'name': 32004,
         'menuLoader': 'load_menu',
@@ -337,7 +343,7 @@ class hardware:
                             'value': '',
                             'action': 'set_cpu_governor',
                             'type': 'multivalue',
-                            'values': ['schedutil', 'ondemand', 'performance'],
+                            'values': list(self.DEFAULT_CPU_GOVERNORS),
                             },
                         },
                     },
@@ -648,19 +654,17 @@ class hardware:
             else:
                 self.struct['display']['settings']['vesa_enable']['value'] = '0'
 
-            cpu_clusters = ["", "cpu0/", "cpu4/"]
-            for cluster in cpu_clusters:
+            for cluster in self.CPU_CLUSTERS:
                 sys_device = '/sys/devices/system/cpu/' + cluster + 'cpufreq/'
                 if not os.path.exists(sys_device):
                     continue
 
                 if os.path.exists(sys_device + 'scaling_available_governors'):
                     available_gov = self.oe.load_file(sys_device + 'scaling_available_governors')
-                    # Merge with static list to ensure schedutil is always offered
-                    static_gov = ['schedutil', 'ondemand', 'performance']
-                    detected_gov = available_gov.split()
-                    merged_gov = list(set(static_gov + detected_gov))
-                    self.struct['performance']['settings']['cpu_governor']['values'] = merged_gov
+                    # Static governors first (UI stability), then kernel-reported
+                    # governors not already in the static set, deduped, order preserved.
+                    self.struct['performance']['settings']['cpu_governor']['values'] = \
+                        list(dict.fromkeys(self.DEFAULT_CPU_GOVERNORS + tuple(available_gov.split())))
 
                 value = self.oe.read_setting('hardware', 'cpu_governor')
                 if value is None:
@@ -892,8 +896,7 @@ class hardware:
 
             value = self.struct['performance']['settings']['cpu_governor']['value']
             if not value is None and not value == '':
-                cpu_clusters = ["", "cpu0/", "cpu4/"]
-                for cluster in cpu_clusters:
+                for cluster in self.CPU_CLUSTERS:
                     sys_device = '/sys/devices/system/cpu/' + cluster + 'cpufreq/scaling_governor'
                     if os.access(sys_device, os.W_OK):
                         cpu_governor_ctl = open(sys_device, 'w')
