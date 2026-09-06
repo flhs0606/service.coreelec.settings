@@ -12,23 +12,19 @@ import xbmcgui
 import xbmcvfs
 import os
 import re
-import locale
 import sys
 import urllib.request, urllib.error, urllib.parse
 import time
+import threading
 import tarfile
 import traceback
 import subprocess
-import dbus
-import dbus.mainloop.glib
 import defaults
 import shutil
 import hashlib, binascii
 import json
 
 from xml.dom import minidom
-import importlib
-
 from xbmc import LOGDEBUG, LOGINFO, LOGWARNING, LOGERROR
 import xml.etree.ElementTree as ET
 
@@ -67,12 +63,7 @@ CANCEL = (
     61448,
     )
 
-try:
-    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-except:
-    pass
-
-dbusSystemBus = dbus.SystemBus()
+dbusSystemBus = None
 
 ###############################################################################
 ########################## initialize module ##################################
@@ -81,16 +72,9 @@ dbusSystemBus = dbus.SystemBus()
 sys.path.append(xbmcvfs.translatePath(os.path.join(__cwd__, 'resources', 'lib')))
 sys.path.append(xbmcvfs.translatePath(os.path.join(__cwd__, 'resources', 'lib', 'modules')))
 
-## set default encoding
-try:
-    encoding = locale.getpreferredencoding(do_setlocale=True)
-except Exception as e:
-    xbmc.log('## CoreELEC Addon ## ' + 'ERROR: (' + repr(e) + ')')
-importlib.reload(sys)
-# sys.setdefaultencoding(encoding)
-
 ## load oeSettings modules
 
+import dbus_utils
 import oeWindows
 xbmc.log('## CoreELEC Addon ## ' + str(__addon__.getAddonInfo('version')))
 
@@ -339,11 +323,9 @@ def execute(command_line, get_result=0):
             process = subprocess.Popen(command_line, shell=True, close_fds=True)
             process.wait()
         else:
-            result = ''
-            process = subprocess.Popen(command_line, shell=True, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            process.wait()
-            for line in process.stdout.readlines():
-                result = result + line.decode('utf-8')
+            process = subprocess.Popen(command_line, shell=True, close_fds=True,
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            result, _ = process.communicate()
             return result
         dbg_log('oe::execute', 'exit_function', LOGDEBUG)
     except Exception as e:
@@ -571,16 +553,24 @@ def set_dtbxml_value(var, value, retry='yes'):
     dtb_root = None
     subprocess.call("mount -o remount,ro /flash", shell=True)
 
-def jsonrpc(query):
+def jsonrpc(query, timeout=10):
     querystring = {"jsonrpc": "2.0", "id": 1}
     querystring.update(query)
-    try:
-        response = json.loads(xbmc.executeJSONRPC(json.dumps(querystring)))
-        if 'result' in response:
-            return response['result']
-    except TypeError as e:
-        dbg_log('oe::jsonrpc', 'ERROR: (' + repr(e) + ')')
-    return None
+    result_holder = [None]
+    def _call():
+        try:
+            response = json.loads(xbmc.executeJSONRPC(json.dumps(querystring)))
+            if 'result' in response:
+                result_holder[0] = response['result']
+        except TypeError as e:
+            dbg_log('oe::jsonrpc', 'ERROR: (' + repr(e) + ')')
+    t = threading.Thread(target=_call)
+    t.daemon = True
+    t.start()
+    t.join(timeout=timeout)
+    if t.is_alive():
+        dbg_log('oe::jsonrpc', 'WARNING: call timed out after %ds: %s' % (timeout, query.get('method', '?')))
+    return result_holder[0]
 
 def url_quote(var):
     return urllib.parse.quote(var, safe="")
@@ -1007,13 +997,10 @@ def reboot_counter(seconds=10, title=' '):
 
 
 def exit():
-    global WinOeSelect, winOeMain, __addon__, __cwd__, __oe__, _, dbusSystemBus, dictModules
-    dbusSystemBus.close()
-    dbusSystemBus = None
+    global WinOeSelect, winOeMain, __addon__, __cwd__, __oe__, _, dictModules
 
     # del winOeMain
 
-    del dbusSystemBus
     del dictModules
     del __addon__
     del __oe__

@@ -7,6 +7,7 @@
 import os
 import glob
 import subprocess
+import threading
 import xbmc
 import xbmcgui
 import xbmcaddon
@@ -362,6 +363,31 @@ class services:
                                 },
                             'InfoText': 775,
                             },
+                        'notify_connected': {
+                            'order': 7,
+                            'name': 32403,
+                            'value': None,
+                            'action': 'notify_connected',
+                            'type': 'bool',
+                            'parent': {
+                                'entry': 'enabled',
+                                'value': ['1'],
+                                },
+                            'InfoText': 776,
+                            },
+                        'restore_audio_device': {
+                            'order': 8,
+                            'name': 32404,
+                            'value': '',
+                            'action': 'restore_audio_device',
+                            'type': 'multivalue',
+                            'values': [],
+                            'parent': {
+                                'entry': 'switch_audio_device',
+                                'value': ['1'],
+                                },
+                            'InfoText': 777,
+                            },
                         },
                     },
                 }
@@ -516,6 +542,21 @@ class services:
                     if not value:
                         value = '1'
                     self.struct['bluez']['settings']['switch_audio_device']['value'] = value
+
+                    value = self.oe.read_setting('bluetooth', 'notify_connected')
+                    if not value:
+                        value = '1'
+                    self.struct['bluez']['settings']['notify_connected']['value'] = value
+
+                    value = self.oe.read_setting('bluetooth', 'restore_audio_device')
+                    if not value:
+                        value = ''
+                    if self.struct['bluez']['settings']['enabled']['value'] == '1':
+                        audio_devices = self.get_audio_devices()
+                        self.oe.dbg_log('services::load_values', f'Audio devices list: {audio_devices}', self.oe.LOGINFO)
+                        self.struct['bluez']['settings']['restore_audio_device']['values'] = audio_devices
+                        self.oe.dbg_log('services::load_values', f'Values set to: {self.struct["bluez"]["settings"]["restore_audio_device"]["values"]}', self.oe.LOGINFO)
+                    self.struct['bluez']['settings']['restore_audio_device']['value'] = value
                 else:
                     self.struct['bluez']['hidden'] = 'true'
 
@@ -675,6 +716,7 @@ class services:
             options = {}
             options['CONNECT_PAIRED'] = '%s' % self.struct['bluez']['settings']['connect_paired']['value']
             options['SWITCH_AUDIO_DEVICE'] = '%s' % self.struct['bluez']['settings']['switch_audio_device']['value']
+            options['NOTIFY_CONNECTED'] = '%s' % self.struct['bluez']['settings']['notify_connected']['value']
             if self.struct['bluez']['settings']['enabled']['value'] != '1':
                 state = 0
                 self.struct['bluez']['settings']['obex_enabled']['hidden'] = True
@@ -685,6 +727,10 @@ class services:
                 if 'hidden' in self.struct['bluez']['settings']['obex_root']:
                     del self.struct['bluez']['settings']['obex_root']['hidden']
             self.oe.set_service('bluez', options, state)
+            if state == 1 and 'bluetooth' in self.oe.dictModules:
+                bt = self.oe.dictModules['bluetooth']
+                if not hasattr(bt, 'bluez_agent'):
+                    bt.start_service()
             self.oe.set_busy(0)
             self.oe.dbg_log('services::init_bluetooth', 'exit_function', self.oe.LOGDEBUG)
         except Exception as e:
@@ -748,6 +794,115 @@ class services:
         except Exception as e:
             self.oe.set_busy(0)
             self.oe.dbg_log('services::switch_audio_device', 'ERROR: (' + repr(e) + ')', self.oe.LOGERROR)
+
+    def notify_connected(self, **kwargs):
+        try:
+            self.oe.dbg_log('services::notify_connected', 'enter_function', self.oe.LOGDEBUG)
+            self.oe.set_busy(1)
+            if 'listItem' in kwargs:
+                self.set_value(kwargs['listItem'])
+            self.oe.write_setting('bluetooth', 'notify_connected', self.struct['bluez']['settings']['notify_connected']['value'])
+            self.oe.set_busy(0)
+            self.oe.dbg_log('services::notify_connected', 'exit_function', self.oe.LOGDEBUG)
+        except Exception as e:
+            self.oe.set_busy(0)
+            self.oe.dbg_log('services::notify_connected', 'ERROR: (' + repr(e) + ')', self.oe.LOGERROR)
+
+    def _get_audio_devices_impl(self, result_holder):
+        """Worker for get_audio_devices — runs in a thread so it can be timed out."""
+        try:
+            devices_list = []
+
+            result = self.oe.jsonrpc({
+                'method': 'Settings.GetSettings',
+                'params': {
+                    'level': 'expert',
+                    'filter': {
+                        'section': 'system',
+                        'category': 'audio'
+                    }
+                }
+            })
+
+            if result and 'settings' in result:
+                for setting in result['settings']:
+                    if setting.get('id') == 'audiooutput.audiodevice':
+                        if 'options' in setting:
+                            for option in setting['options']:
+                                device_label = option.get('label', '')
+                                device_value = option.get('value', '')
+                                if device_label and device_value:
+                                    device_string = f"{device_label}###{device_value}"
+                                    self.oe.dbg_log('services::get_audio_devices', f'Adding device: {device_string}', self.oe.LOGINFO)
+                                    devices_list.append(device_string)
+                            self.oe.dbg_log('services::get_audio_devices', f'Found {len(devices_list)} audio devices', self.oe.LOGINFO)
+                            devices_list.insert(0, 'Auto-detect###')
+                            self.oe.dbg_log('services::get_audio_devices', f'Final devices_list: {devices_list}', self.oe.LOGINFO)
+                            result_holder.append(devices_list)
+                            return
+
+            self.oe.dbg_log('services::get_audio_devices', 'Settings.GetSettings failed, using fallback', self.oe.LOGDEBUG)
+
+            current_result = self.oe.jsonrpc({
+                'method': 'Settings.GetSettingValue',
+                'params': {'setting': 'audiooutput.audiodevice'},
+            })
+            if current_result:
+                device = current_result.get('value', '')
+                if device:
+                    devices_list.append(f"{device}###{device}")
+
+            pt_result = self.oe.jsonrpc({
+                'method': 'Settings.GetSettingValue',
+                'params': {'setting': 'audiooutput.passthroughdevice'},
+            })
+            if pt_result:
+                device = pt_result.get('value', '')
+                if device and device not in [d.split('###', 1)[1] if '###' in d else d for d in devices_list]:
+                    devices_list.append(f"{device}###{device}")
+
+            devices_list.insert(0, 'Auto-detect###')
+            result_holder.append(devices_list)
+        except Exception as e:
+            self.oe.dbg_log('services::get_audio_devices', 'ERROR: (' + repr(e) + ')', self.oe.LOGERROR)
+
+    def get_audio_devices(self):
+        """Get list of available audio devices from Kodi.
+
+        Returns list in format: ['Display Label###device_value', ...]
+        Uses ### as separator since : and | appear in labels/values.
+        Runs the JSON-RPC call in a thread with a timeout to avoid
+        blocking forever if kodi is shutting down.
+        """
+        try:
+            result_holder = []
+            t = threading.Thread(target=self._get_audio_devices_impl, args=(result_holder,))
+            t.daemon = True
+            t.start()
+            t.join(timeout=2)
+            if result_holder:
+                return result_holder[0]
+            self.oe.dbg_log('services::get_audio_devices', 'Timed out or no result', self.oe.LOGWARNING)
+            return ['Auto-detect###']
+        except Exception as e:
+            self.oe.dbg_log('services::get_audio_devices', 'ERROR: (' + repr(e) + ')', self.oe.LOGERROR)
+            return ['Auto-detect###']
+
+    def restore_audio_device(self, **kwargs):
+        try:
+            self.oe.dbg_log('services::restore_audio_device', 'enter_function', self.oe.LOGDEBUG)
+            self.oe.set_busy(1)
+            if 'listItem' in kwargs:
+                self.set_value(kwargs['listItem'])
+            device_value = self.struct['bluez']['settings']['restore_audio_device']['value']
+            self.oe.write_setting('bluetooth', 'restore_audio_device', device_value)
+            self.oe.write_setting('bluetooth', 'default_audio_device', device_value)
+            self.oe.dbg_log('services::restore_audio_device', f'Set both restore and default to: {device_value}', self.oe.LOGINFO)
+            self.oe.set_busy(0)
+            self.oe.dbg_log('services::restore_audio_device', 'exit_function', self.oe.LOGDEBUG)
+        except Exception as e:
+            self.oe.set_busy(0)
+            self.oe.dbg_log('services::restore_audio_device', 'ERROR: (' + repr(e) + ')', self.oe.LOGERROR)
 
     def exit(self):
         try:

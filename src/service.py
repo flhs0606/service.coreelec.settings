@@ -4,7 +4,9 @@
 # Copyright (C) 2019-present Team LibreELEC (https://libreelec.tv)
 # Copyright (C) 2020-present Team CoreELEC (https://coreelec.org)
 
+import asyncio
 import oe
+import dbus_utils
 import xbmc
 import xbmcgui
 import time
@@ -96,6 +98,7 @@ class cxbmcm(xbmc.Monitor):
 
 
 xbmcm = cxbmcm()
+dbus_utils.LOOP_THREAD.start()
 oe.load_modules()
 oe.start_service()
 monitor = service_thread(oe.__oe__)
@@ -128,5 +131,30 @@ if hasattr(oe, 'winOeMain') and hasattr(oe.winOeMain, 'visible'):
     if oe.winOeMain.visible == True:
         oe.winOeMain.close()
 
+try:
+    def _cancel_all_tasks():
+        for task in asyncio.all_tasks(dbus_utils.LOOP):
+            task.cancel()
+    dbus_utils.LOOP.call_soon_threadsafe(_cancel_all_tasks)
+except Exception:
+    pass
 oe.stop_service()
 monitor.stop()
+try:
+    dbus_utils.LOOP.call_soon_threadsafe(dbus_utils.LOOP.stop)
+    dbus_utils.LOOP_THREAD.stop()
+except Exception:
+    pass
+try:
+    import dbussy
+    conn = dbus_utils.BUS.connection
+    if conn._dbobj is not None and conn.loop is not None:
+        dbussy.dbus.dbus_connection_set_watch_functions(
+            conn._dbobj, None, None, None, None, None)
+        dbussy.dbus.dbus_connection_set_timeout_functions(
+            conn._dbobj, None, None, None, None, None)
+        conn.loop = None
+    dbus_utils.BUS._server_dispatch = None
+    dbus_utils.BUS._client_dispatch = None
+except Exception:
+    pass

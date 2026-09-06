@@ -147,7 +147,15 @@ class mainWindow(xbmcgui.WindowXMLDialog):
                             if 'validate' in setting:
                                 dictProperties['validate'] = setting['validate']
                             if 'values' in setting:
-                                dictProperties['values'] = '|'.join(setting['values'])
+                                dictProperties['values'] = '~~~'.join(setting['values'])
+                                if setting['type'] == 'multivalue':
+                                    current_value = setting['value']
+                                    for item in setting['values']:
+                                        if '###' in item:
+                                            label, value = item.split('###', 1)
+                                            if value == current_value:
+                                                dictProperties['display_label'] = label
+                                                break
                             if isinstance(setting['name'], str):
                                 name = setting['name']
                             else:
@@ -249,9 +257,10 @@ class mainWindow(xbmcgui.WindowXMLDialog):
                 if strTyp == 'multivalue':
                     items1 = []
                     items2 = []
-                    for item in selectedItem.getProperty('values').split('|'):
-                        if item != ':':
-                            boo = item.split(':')
+                    current_label = None
+                    for item in selectedItem.getProperty('values').split('~~~'):
+                        if item != '###':
+                            boo = item.split('###', 1)
                             if len(boo) > 1:
                                 i1 = boo[0]
                                 i2 = boo[1]
@@ -264,15 +273,19 @@ class mainWindow(xbmcgui.WindowXMLDialog):
                         if i2 == strValue:
                             items1.insert(0, i1)
                             items2.insert(0, i2)
+                            current_label = i1
                         else:
                             # move current on top of the list
                             items1.append(i1)
                             items2.append(i2)
+                    if current_label:
+                        selectedItem.setProperty('display_label', current_label)
                     select_window = xbmcgui.Dialog()
                     title = selectedItem.getProperty('menuname')
                     result = select_window.select(title, items1)
                     if result >= 0:
                         selectedItem.setProperty('value', items2[result])
+                        selectedItem.setProperty('display_label', items1[result])
                 elif strTyp == 'text':
                     xbmcKeyboard = xbmc.Keyboard(strValue)
                     result_is_valid = False

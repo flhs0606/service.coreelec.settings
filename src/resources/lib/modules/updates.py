@@ -47,7 +47,7 @@ class updates:
                         'AutoUpdate': {
                             'name': 32014,
                             'value': 'manual',
-                            'action': 'do_manual_update',
+                            'action': 'set_auto_update',
                             'type': 'multivalue',
                             'values': ['auto', 'manual'],
                             'InfoText': 714,

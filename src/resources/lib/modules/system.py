@@ -35,6 +35,7 @@ class system:
     BACKUP_DESTINATION = None
     RESTORE_DIR = None
     SET_CLOCK_CMD = None
+    JOURNALD_CONFIG_FILE = None
     menu = {'1': {
         'name': 32002,
         'menuLoader': 'load_menu',
@@ -212,7 +213,49 @@ class system:
                             },
                         },
                     },
-                }
+                'journal': {
+                    'order': 10,
+                    'name': 32410,
+                    'settings': {
+                        'journal_persistent': {
+                            'order': 1,
+                            'name': 32411,
+                            'value': '0',
+                            'action': 'do_journald',
+                            'type': 'bool',
+                            'InfoText': 32412,
+                        },
+                        'journal_size': {
+                            'order': 2,
+                            'name': 32413,
+                            'value': '30 MiB',
+                            'action': 'do_journald',
+                            'type': 'multivalue',
+                            'values': [
+                                '30 MiB', '60 MiB', '100 MiB',
+                                '150 MiB', '200 MiB', '300 MiB'
+                            ],
+                            'InfoText': 32414,
+                            'parent': {
+                                'entry': 'journal_persistent',
+                                'value': ['1'],
+                            },
+                        },
+                        'journal_rate_limit': {
+                            'order': 2,
+                            'name': 32415,
+                            'value': '1',
+                            'action': 'do_journald',
+                            'type': 'bool',
+                            'InfoText': 32416,
+                            'parent': {
+                                'entry': 'journal_persistent',
+                                'value': ['1'],
+                            },
+                        },
+                    },
+                },
+            }
 
             self.keyboard_layouts = False
             self.nox_keyboard_layouts = False
@@ -306,6 +349,10 @@ class system:
             # PIN Lock
             self.struct['pinlock']['settings']['pinlock_enable']['value'] = '1' if self.oe.PIN.isEnabled() else '0'
 
+            self.get_setting('journal', 'journal_persistent')
+            self.get_setting('journal', 'journal_size')
+            self.get_setting('journal', 'journal_rate_limit')
+
         except Exception as e:
             self.oe.dbg_log('system::load_values', 'ERROR: (' + repr(e) + ')')
 
@@ -316,6 +363,11 @@ class system:
             self.oe.dbg_log('system::load_menu', 'exit_function', self.oe.LOGDEBUG)
         except Exception as e:
             self.oe.dbg_log('system::load_menu', 'ERROR: (' + repr(e) + ')')
+
+    def get_setting(self, group, setting, allowEmpty=False):
+        value = self.oe.read_setting('system', setting)
+        if not value is None and not (allowEmpty == False and value == ''):
+            self.struct[group]['settings'][setting]['value'] = value
 
     def set_value(self, listItem):
         try:
@@ -430,9 +482,9 @@ class system:
                                         value = subnode_2.firstChild.nodeValue
                                 if subnode_2.nodeName == 'description':
                                     if hasattr(subnode_2.firstChild, 'nodeValue'):
-                                        arrLayouts.append(subnode_2.firstChild.nodeValue + ':' + value)
+                                        arrLayouts.append(subnode_2.firstChild.nodeValue + '###' + value)
                         if subnode_1.nodeName == 'variantList':
-                            arrVariants[value] = [':']
+                            arrVariants[value] = ['###']
                             for subnode_vl in subnode_1.childNodes:
                                 if subnode_vl.nodeName == 'variant':
                                     for subnode_v in subnode_vl.childNodes:
@@ -444,7 +496,7 @@ class system:
                                                 if subnode_ci.nodeName == 'description':
                                                     if hasattr(subnode_ci.firstChild, 'nodeValue'):
                                                         try:
-                                                            arrVariants[value].append(subnode_ci.firstChild.nodeValue + ':' + vvalue)
+                                                            arrVariants[value].append(subnode_ci.firstChild.nodeValue + '###' + vvalue)
                                                         except:
                                                             pass
                 for xml_layout in xml_conf.getElementsByTagName('model'):
@@ -530,6 +582,7 @@ class system:
             self.oe.dbg_log('system::do_backup', 'enter_function', self.oe.LOGDEBUG)
             self.total_backup_size = 1
             self.done_backup_size = 1
+            self.ram_backed_mounts = self.get_ram_backed_mounts()
             xbmcDialog = xbmcgui.Dialog()
             includeThumbnails = 1 == xbmcDialog.yesno('CoreELEC Backup', 'Should this backup include the thumbnails folder(s)?', yeslabel='Include', nolabel='Exclude')
 
@@ -576,7 +629,8 @@ class system:
             self.oe.dbg_log('system::do_backup', 'exit_function', self.oe.LOGDEBUG)
 
         except Exception as e:
-            self.backup_dlg.close()
+            if getattr(self, 'backup_dlg', None) is not None:
+                self.backup_dlg.close()
             self.oe.dbg_log('system::do_backup', 'ERROR: (' + repr(e) + ')')
 
     def do_restore(self, listItem=None):
@@ -708,7 +762,10 @@ class system:
                 if os.path.islink(itempath):
                     tar.add(itempath)
                 elif os.path.ismount(itempath):
-                    tar.add(itempath, recursive=False)
+                    if itempath in getattr(self, 'ram_backed_mounts', set()) and os.listdir(itempath) != []:
+                        self.tar_add_folder(tar, itempath, includeThumbnails)
+                    else:
+                        tar.add(itempath, recursive=False)
                 elif os.path.isdir(itempath):
                     if os.listdir(itempath) == []:
                         tar.add(itempath)
@@ -721,8 +778,21 @@ class system:
                         progress = round(1.0 * self.done_backup_size / self.total_backup_size * 100)
                         self.backup_dlg.update(int(progress), '%s\n%s' % (folder, item))
         except Exception as e:
-            self.backup_dlg.close()
+            if getattr(self, 'backup_dlg', None) is not None:
+                self.backup_dlg.close()
             self.oe.dbg_log('system::tar_add_folder', 'ERROR: (' + repr(e) + ')')
+
+    def get_ram_backed_mounts(self):
+        mounts = set()
+        try:
+            with open('/proc/mounts') as mounts_file:
+                for line in mounts_file:
+                    fields = line.split()
+                    if len(fields) >= 3 and fields[2] in ('tmpfs', 'overlay') and fields[1].startswith('/storage/'):
+                        mounts.add(fields[1])
+        except Exception as e:
+            self.oe.dbg_log('system::get_ram_backed_mounts', 'ERROR: (' + repr(e) + ')')
+        return mounts
 
     def get_folder_size(self, folder, includeThumbnails=False):
         for item in os.listdir(folder):
@@ -734,7 +804,8 @@ class system:
             elif os.path.isfile(itempath):
                 self.total_backup_size += os.path.getsize(itempath)
             elif os.path.ismount(itempath):
-                continue
+                if itempath in getattr(self, 'ram_backed_mounts', set()):
+                    self.get_folder_size(itempath, includeThumbnails)
             elif os.path.isdir(itempath):
                 self.get_folder_size(itempath, includeThumbnails)
 
@@ -775,6 +846,31 @@ class system:
             self.oe.dbg_log('system::set_pinlock', 'exit_function', self.oe.LOGDEBUG)
         except Exception as e:
             self.oe.dbg_log('system::set_pinlock', 'ERROR: (%s)' % repr(e), self.oe.LOGERROR)
+
+    def do_journald(self, listItem=None):
+        if not listItem == None:
+            self.set_value(listItem)
+            if (self.struct['journal']['settings']['journal_persistent']['value'] == '0' and
+                    os.path.isfile(self.JOURNALD_CONFIG_FILE)):
+                try:
+                    os.remove(self.JOURNALD_CONFIG_FILE)
+                except:
+                    pass
+            else:
+                config_file = open(self.JOURNALD_CONFIG_FILE, 'w')
+                config_file.write("# SPDX-License-Identifier: GPL-2.0-or-later\n" +
+                                  "# Copyright (C) 2021-present Team LibreELEC (https://libreelec.tv)\n\n" +
+                                  "# Copyright (C) 2020-present Team CoreELEC (https://coreelec.org)\n\n" +
+                                  "# This file is generated automatically, don't modify.\n\n" +
+                                  "[Journal]\n")
+
+                size = self.struct['journal']['settings']['journal_size']['value'].replace(' MiB', 'M')
+                config_file.write(("SystemMaxUse=%s\n" % size) +
+                                  "MaxRetentionSec=0\n")
+                if self.struct['journal']['settings']['journal_rate_limit']['value'] == '1':
+                    config_file.write("RateLimitInterval=0\n" +
+                                      "RateLimitBurst=0\n")
+                config_file.close()
 
     def do_wizard(self):
         try:

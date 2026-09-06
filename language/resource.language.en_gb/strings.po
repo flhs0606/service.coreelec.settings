@@ -300,6 +300,14 @@ msgctxt "#775"
 msgid "Automatic change audio output to PULSE when a audio device get connected"
 msgstr ""
 
+msgctxt "#776"
+msgid "Show notification when a Bluetooth device connects or disconnects (excludes remotes and game controllers)"
+msgstr ""
+
+msgctxt "#777"
+msgid "Specify which audio device to restore when Bluetooth disconnects. Leave empty to auto-detect. Example: ALSA: AML-AUGESOUND, HDMI"
+msgstr ""
+
 msgctxt "#780"
 msgid "Configure hardware settings"
 msgstr ""
@@ -402,6 +410,10 @@ msgstr ""
 
 msgctxt "#912"
 msgid "Forum username to identify the connection"
+msgstr ""
+
+msgctxt "#913"
+msgid "Experimental. Enable UAS for USB storage (higher queue depth, lower latency, better concurrency). Applied at the next reboot. Some USB-SATA/NVMe bridges and cheap flash drives misbehave under UAS. To keep a specific device on BOT (standard) mode, add its lsusb VID:PID to /storage/.config/uas-blacklist.txt, one per line, and reboot. Full recovery if a drive becomes unusable: SSH in and run rm /storage/.config/uas.enabled && reboot. Do not enable on systems booting from a problematic USB stick."
 msgstr ""
 
 
@@ -1197,6 +1209,42 @@ msgctxt "#32402"
 msgid "Switch audio device on connection"
 msgstr ""
 
+msgctxt "#32403"
+msgid "Show connection notifications"
+msgstr ""
+
+msgctxt "#32404"
+msgid "Restore audio device (optional)"
+msgstr ""
+
+msgctxt "#32410"
+msgid "Logging"
+msgstr ""
+
+msgctxt "#32411"
+msgid "Use Persistent Logs"
+msgstr ""
+
+msgctxt "#32412"
+msgid "Use Persistent Journal and Log files instead of default volatile ones. Reboot to apply changes."
+msgstr ""
+
+msgctxt "#32413"
+msgid "Journal Size"
+msgstr ""
+
+msgctxt "#32414"
+msgid "Set max. size of persistent journal. Reboot to apply changes."
+msgstr ""
+
+msgctxt "#32415"
+msgid "Disable journald Rate Limit"
+msgstr ""
+
+msgctxt "#32416"
+msgid "Reboot to apply changes."
+msgstr ""
+
 msgctxt "#32500"
 msgid "Fan"
 msgstr ""
@@ -1271,6 +1319,7 @@ msgstr ""
 
 msgctxt "#32524"
 msgid "Idle Time"
+msgstr ""
 
 msgctxt "#32525"
 msgid "eMMC Speed Mode"
@@ -1314,6 +1363,10 @@ msgstr ""
 
 msgctxt "#32535"
 msgid "Smartchip WiFi Driver"
+msgstr ""
+
+msgctxt "#32536"
+msgid "USB Attached SCSI (UAS)"
 msgstr ""
 
 
@@ -1400,4 +1453,8 @@ msgstr ""
 
 msgctxt "#33530"
 msgid "Connection name"
+msgstr ""
+
+msgctxt "#33531"
+msgid "UAS setting changed.[CR]A reboot is required for the new setting to take effect."
 msgstr ""
